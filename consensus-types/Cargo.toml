@@ -1,0 +1,34 @@
+[package]
+name = "kinet-consensus-types"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[dependencies]
+kinet-chain-config = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-types = { workspace = true }
+kinet-validator = { workspace = true }
+
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+auto_impl = { workspace = true }
+bytes = { workspace = true }
+hex = { workspace = true }
+prometheus = { workspace = true }
+serde = { workspace = true, features = ["rc", "serde_derive"] }
+serde_with = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+kinet-bls = { workspace = true }
+kinet-secp = { workspace = true }
+kinet-testutil = { workspace = true }
+
+test-case = { workspace = true }

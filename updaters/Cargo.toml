@@ -1,0 +1,45 @@
+[package]
+name = "kinet-updaters"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[features]
+kinet-triedb = ["dep:kinet-bls", "dep:kinet-secp", "tokio"]
+tokio = ["dep:tokio"]
+
+[dependencies]
+kinet-blocksync = { workspace = true }
+kinet-bls = { workspace = true, optional = true }
+kinet-chain-config = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-block-policy = { workspace = true }
+kinet-eth-txpool = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-node-config = { workspace = true }
+kinet-secp = { workspace = true, optional = true }
+kinet-tfm = { workspace = true }
+kinet-types = { workspace = true }
+kinet-validator = { workspace = true }
+
+alloy-consensus = { workspace = true, features = ["k256"] }
+alloy-eips = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+sorted-vec = { workspace = true }
+tokio = { workspace = true, features = ["net", "rt", "sync", "time"], optional = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+ntest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }

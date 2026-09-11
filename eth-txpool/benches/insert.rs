@@ -1,0 +1,68 @@
+// Copyright (C) 2025 Kinet Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the Apache-2.0 license as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// Apache-2.0 license for more details.
+//
+// You should have received a copy of the Apache-2.0 license
+// along with this program.  If not, see <http://www.apache.org/licenses//>.
+
+use std::collections::BTreeMap;
+
+use common::SignatureType;
+use criterion::{criterion_group, criterion_main, Criterion};
+use kinet_chain_config::{revision::MockChainRevision, MockChainConfig};
+use kinet_eth_block_policy::EthBlockPolicy;
+use kinet_eth_txpool::{EthTxPool, EthTxPoolEventTracker, EthTxPoolMetrics, PoolTxKind};
+use kinet_types::GENESIS_SEQ_NUM;
+
+use self::common::{run_txpool_benches, BenchController, SignatureCollectionType, EXECUTION_DELAY};
+
+mod common;
+
+fn criterion_benchmark(c: &mut Criterion) {
+    // TODO: change this to something more meaningful, i.e. what's is the block
+    // policy state we want to benchmark
+    let block_policy: EthBlockPolicy<
+        SignatureType,
+        SignatureCollectionType,
+        MockChainConfig,
+        MockChainRevision,
+    > = EthBlockPolicy::new(GENESIS_SEQ_NUM, EXECUTION_DELAY);
+
+    run_txpool_benches(
+        c,
+        "insert",
+        |_, _, txs| {
+            let pool = EthTxPool::default_testing();
+
+            let state_read = BenchController::generate_state_read_for_txs(&txs);
+
+            (pool, txs, state_read)
+        },
+        |(pool, txs, state_read)| {
+            pool.insert_txs(
+                &mut EthTxPoolEventTracker::new(
+                    &EthTxPoolMetrics::default(),
+                    &mut BTreeMap::default(),
+                ),
+                &block_policy,
+                state_read,
+                &MockChainConfig::DEFAULT,
+                txs.iter()
+                    .map(|tx| (tx.clone(), PoolTxKind::owned_default()))
+                    .collect(),
+                |_| {},
+            );
+        },
+    );
+}
+
+criterion_group!(benches, criterion_benchmark);
+criterion_main!(benches);

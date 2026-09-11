@@ -1,0 +1,45 @@
+query Graph {
+  currentTick
+  currentLeader
+  nextLeader
+  nodes {
+    ...Node
+  }
+}
+
+fragment Node on GraphQLNode {
+  id
+  isBlocked
+  currentRound
+  root
+  metrics {
+    consensusCreatedQc
+    consensusLocalTimeout
+    consensusHandleProposal
+  }
+  roundTimerStartedAt
+  roundTimerEndsAt
+  pendingMessages {
+    id
+    fromId
+    fromTick
+    rxTick
+    size
+    message {
+      ...Message
+    }
+  }
+}
+
+fragment Message on GraphQLConsensusMessage {
+  __typename
+  round
+  message {
+    __typename
+    ...Proposal
+  }
+}
+
+fragment Proposal on GraphQLProposal {
+  seqNum
+}

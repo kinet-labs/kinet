@@ -1,0 +1,25 @@
+[package]
+name = "kinet-peer-disc-swarm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kinet-crypto = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-peer-discovery = { workspace = true }
+kinet-router-scheduler = { workspace = true }
+kinet-transformer = { workspace = true }
+kinet-types = { workspace = true }
+
+itertools = { workspace = true }
+priority-queue = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kinet-testutil = { workspace = true }
+
+alloy-rlp = { workspace = true }
+tracing-test = { workspace = true, features = ["no-env-filter"] }

@@ -1,0 +1,9 @@
+[package]
+name = "kinet-mcp-chorus-sim"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kinet-mcp-chorus = { workspace = true, features = ["enable_stub"] }
+kinet-sim = { workspace = true }
+kinet-sim-swarm = { workspace = true }

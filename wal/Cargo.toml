@@ -1,0 +1,41 @@
+[package]
+name = "kinet-wal"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[dependencies]
+kinet-types = { workspace = true }
+kinet-wal-derive = { workspace = true }
+
+bytes = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+kinet-version = { workspace = true }
+
+[dev-dependencies]
+kinet-bls = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-secp = { workspace = true }
+kinet-types = { workspace = true }
+kinet-version = { workspace = true }
+
+clap = { workspace = true, features = ["derive"] }
+criterion = { workspace = true }
+dateparser = { workspace = true }
+itertools = { workspace = true }
+rayon = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+test-case = { workspace = true }
+
+[[bench]]
+name = "raw_bench"
+harness = false

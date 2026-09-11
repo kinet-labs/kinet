@@ -1,0 +1,30 @@
+[Unit]
+Description="Service file for Kinet RPC"
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kinet-rpc \
+    --ipc-path /home/kinet/kinet/mempool.sock \
+    --triedb-path /dev/triedb \
+    --otel-endpoint "http://127.0.0.1:4317" \
+    --allow-unprotected-txs \
+    --node-config /home/kinet/kinet/config/node.toml
+Environment="RUST_LOG=info,kinet_ipc=debug"
+EnvironmentFile=-/home/kinet/.env
+Restart=always
+User=kinet
+Group=kinet
+DeviceAllow=/dev/triedb rw
+LimitNOFILE=1048576
+AllowedCPUs=12-15
+CPUAffinity=12,13,14,15
+# Hugemem configs below
+LimitMEMLOCK=infinity
+MemoryDenyWriteExecute=false
+#SystemCallFilter=~@memlock
+ProtectKernelModules=no
+ProtectKernelLogs=no
+
+[Install]
+WantedBy=multi-user.target

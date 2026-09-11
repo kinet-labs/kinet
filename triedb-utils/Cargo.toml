@@ -1,0 +1,37 @@
+[package]
+name = "kinet-triedb-utils"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[dependencies]
+kinet-bls = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-secp = { workspace = true }
+kinet-triedb = { workspace = true }
+kinet-types = { workspace = true }
+
+alloy-consensus = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+auto_impl = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+tracing = { workspace = true, features = ["log"] }
+
+[dev-dependencies]
+kinet-eth-testutil = { workspace = true }
+
+alloy-consensus = { workspace = true, features = ["k256"] }
+clap = { workspace = true, features = ["derive"] }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

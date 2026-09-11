@@ -1,0 +1,30 @@
+[Unit]
+Description="Service file for Kinet Execution"
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kinet \
+    --chain "$CHAIN" \
+    --db /dev/triedb \
+    --block_db /home/kinet/kinet/ledger \
+    --statesync /home/kinet/kinet/statesync.sock \
+    --sq_thread_cpu 1 \
+    --log_level INFO
+EnvironmentFile=-/home/kinet/.env
+Restart=no
+User=kinet
+Group=kinet
+DeviceAllow=/dev/triedb rw
+LimitNOFILE=1048576
+AllowedCPUs=1-7
+CPUAffinity=1,2,3,4,5,6,7
+# Hugemem configs below
+LimitMEMLOCK=infinity
+MemoryDenyWriteExecute=false
+#SystemCallFilter=~@memlock
+ProtectKernelModules=no
+ProtectKernelLogs=no
+
+[Install]
+WantedBy=multi-user.target

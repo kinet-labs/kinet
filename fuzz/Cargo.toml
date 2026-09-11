@@ -1,0 +1,32 @@
+[package]
+name = "kinet-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+afl = "*"
+
+arbitrary = { workspace = true, features = ["derive"] }
+bytes = { workspace = true }
+
+kinet-types = { workspace = true }
+kinet-bls = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-raptorcast = { workspace = true }
+kinet-raptor = { workspace = true }
+kinet-secp = { workspace = true }
+kinet-state = { workspace = true }
+
+[[bin]]
+name = "fuzz_parse_message"
+path = "fuzz_targets/fuzz_parse_message.rs"
+
+[[bin]]
+name = "fuzz_deserialize"
+path = "fuzz_targets/fuzz_deserialize.rs"
+
+[[bin]]
+name = "fuzz_raptor_decoder"
+path = "fuzz_targets/fuzz_raptor_decoder.rs"

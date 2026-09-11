@@ -1,0 +1,41 @@
+[package]
+name = "kinet-executor-glue"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[dependencies]
+kinet-blocksync = { workspace = true }
+kinet-chain-config = { workspace = true }
+kinet-consensus = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-statesync-version = { workspace = true }
+kinet-types = { workspace = true }
+kinet-validator = { workspace = true }
+kinet-wal = { workspace = true }
+
+alloy-rlp = { workspace = true }
+bincode = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+futures = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["hex"] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+insta = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-multi-sig = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+[[bench]]
+name = "rlp_bench"
+harness = false

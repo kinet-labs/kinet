@@ -1,0 +1,24 @@
+[package]
+name = "kinet-eth-ledger"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[dependencies]
+kinet-blocksync = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-types = { workspace = true }
+kinet-updaters = { workspace = true }
+kinet-validator = { workspace = true }
+
+futures = { workspace = true }
+tracing = { workspace = true }

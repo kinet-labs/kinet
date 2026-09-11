@@ -1,0 +1,12 @@
+services:
+  build_triedb:
+    image: categoryxyz/kinet:latest
+    command: kinet-mpt --storage /kinet/triedb/test.db --create --root-offsets-chunk-count=2
+  build_genesis:
+    image: categoryxyz/kinet:latest
+  kinet_execution:
+    image: categoryxyz/kinet:latest
+  kinet_node:
+    image: categoryxyz/kinet:latest
+  kinet_rpc:
+    image: categoryxyz/kinet:latest

@@ -1,0 +1,83 @@
+[package]
+name = "kinet-node"
+description = "Kinet consensus node"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kinet-node"
+bench = false
+
+[features]
+default = ["jemallocator"]
+jemallocator = ["tikv-jemallocator", "kinet-pprof/jemallocator"]
+
+[dependencies]
+kinet-bls = { workspace = true }
+kinet-chain-config = { workspace = true }
+kinet-consensus-state = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-control-panel = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-dataplane = { workspace = true }
+kinet-eth-block-policy = { workspace = true }
+kinet-eth-block-validator = { workspace = true }
+kinet-eth-txpool-executor = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-execution-state-read-cache = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-keystore = { workspace = true }
+kinet-ledger = { workspace = true }
+kinet-node-config = { workspace = true, features = ["crypto"] }
+kinet-peer-discovery = { workspace = true }
+kinet-peer-score = { workspace = true }
+kinet-pprof = { workspace = true }
+kinet-raptorcast = { workspace = true }
+kinet-router-multi = { workspace = true }
+kinet-secp = { workspace = true }
+kinet-state = { workspace = true }
+kinet-statesync-executor = { workspace = true }
+kinet-triedb-utils = { workspace = true }
+kinet-types = { workspace = true }
+kinet-updaters = { workspace = true, features = ["kinet-triedb", "tokio"] }
+kinet-validator = { workspace = true }
+kinet-version = { workspace = true }
+kinet-wal = { workspace = true }
+kinet-wireauth = { workspace = true }
+
+actix-server = { workspace = true }
+actix-web = { workspace = true }
+agent = { workspace = true }
+alloy-rlp = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures-util = { workspace = true }
+hex = { workspace = true }
+opentelemetry = { workspace = true, features = ["metrics"] }
+opentelemetry-otlp = { workspace = true, features = ["metrics", "grpc-tonic"] }
+opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["rt-tokio"] }
+prometheus = { workspace = true }
+rand_chacha = { workspace = true }
+rayon = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+toml = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+kinetracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+[target.'cfg(not(target_env = "msvc"))'.dependencies.tikv-jemallocator]
+workspace = true
+features = ["profiling", "stats", "unprefixed_malloc_on_supported_platforms", "background_threads"]
+optional = true
+
+[build-dependencies]
+kinet-version = { workspace = true }
+
+[dev-dependencies]
+kinet-block-persist = { workspace = true }
+
+inotify = { workspace = true }
+lru = { workspace = true }

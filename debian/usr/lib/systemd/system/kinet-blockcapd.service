@@ -1,0 +1,16 @@
+[Unit]
+Description="Service file for Kinet blockcapd (local exec events capture writer)"
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kinet-blockcapd ${BLOCKCAPD_ROOT_DIR}
+EnvironmentFile=-/home/kinet/.env
+Restart=no
+User=kinet
+Group=kinet
+ProtectKernelModules=no
+ProtectKernelLogs=no
+
+[Install]
+WantedBy=multi-user.target

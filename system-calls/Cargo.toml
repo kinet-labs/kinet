@@ -1,0 +1,28 @@
+[package]
+name = "kinet-system-calls"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kinet-chain-config = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-types = { workspace = true }
+kinet-validator = { workspace = true }
+
+alloy-consensus = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
+alloy-sol-types = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kinet-eth-testutil = { workspace = true }
+kinet-testutil = { workspace = true }
+kinet-types = { workspace = true }
+
+alloy-consensus = { workspace = true, features = ["k256"] }
+alloy-eips = { workspace = true }

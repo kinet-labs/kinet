@@ -1,0 +1,49 @@
+[package]
+name = "kinet-eth-txpool-executor"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[dependencies]
+kinet-chain-config = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-block-policy = { workspace = true }
+kinet-eth-txpool = { workspace = true }
+kinet-eth-txpool-ipc = { workspace = true }
+kinet-eth-txpool-types = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-fair-queue = { workspace = true }
+kinet-peer-score = { workspace = true }
+kinet-secp = { workspace = true }
+kinet-types = { workspace = true }
+kinet-validator = { workspace = true }
+
+alloy-consensus = { workspace = true }
+alloy-eips = { workspace = true }
+alloy-primitives = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+indexmap = { workspace = true }
+itertools = { workspace = true }
+pin-project = { workspace = true }
+rayon = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kinet-eth-testutil = { workspace = true }
+kinet-testutil = { workspace = true }
+kinet-tfm = { workspace = true }
+
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

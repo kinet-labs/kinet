@@ -1,0 +1,110 @@
+// Copyright (C) 2025 Kinet Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the Apache-2.0 license as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// Apache-2.0 license for more details.
+//
+// You should have received a copy of the Apache-2.0 license
+// along with this program.  If not, see <http://www.apache.org/licenses//>.
+
+use std::sync::atomic::Ordering;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::prelude::*;
+
+pub mod join;
+pub mod stats;
+
+pub use join::*;
+pub use stats::*;
+
+impl Report {
+    pub async fn new(
+        config: Config,
+        workload_idx: usize,
+        start_time: DateTime<Utc>,
+        metrics: &Metrics,
+        client: &impl EthJsonRpc,
+        prom_url: Option<String>,
+    ) -> Self {
+        let txs_sent = metrics.total_txs_sent.load(Ordering::Relaxed);
+        let txs_committed = metrics.total_committed_txs.load(Ordering::Relaxed);
+        let txs_dropped = txs_sent - txs_committed;
+        let target_tps = config.workload_groups[workload_idx].traffic_gens[0].tps as usize;
+        let end_time = Utc::now();
+
+        // Grab client version from node
+        let client_version = client
+            .get_client_version()
+            .await
+            .inspect_err(|e| error!("Failed to get client version: {e:?}"))
+            .ok();
+
+        // Grab prometheus stats for node performance metrics
+        let (stats, stats_str) = join_stats(prom_url, start_time, end_time)
+            .await
+            .wrap_err("Failed to join stats for Workload Group Report")
+            .unwrap_or_default();
+
+        Self {
+            start_time,
+            end_time,
+            config,
+            workload_idx,
+            txs_sent,
+            txs_committed,
+            txs_dropped,
+            target_tps,
+            stats,
+            stats_str,
+            client_version,
+        }
+    }
+
+    pub fn to_json_file(&self, dir: &std::path::Path) -> Result<()> {
+        // Create directory if it doesn't exist
+        std::fs::create_dir_all(dir)
+            .wrap_err_with(|| format!("Failed to create directory {}", dir.display()))?;
+
+        let file_path = dir.join(format!(
+            "{}-report-{}-{}.json",
+            self.start_time.format("%Y%m%d"),
+            self.workload_idx,
+            self.end_time.format("%H%M%S")
+        ));
+        // Open file, truncate if it exists
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&file_path)
+            .wrap_err_with(|| format!("Failed to open file {}", file_path.display()))?;
+        // Write report to file
+        serde_json::to_writer_pretty(file, self)
+            .wrap_err_with(|| format!("Failed to write report to file {}", file_path.display()))?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Report {
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
+    config: Config,
+    workload_idx: usize,
+    txs_sent: usize,
+    txs_committed: usize,
+    txs_dropped: usize,
+    target_tps: usize,
+    stats: HashMap<String, CounterStatsReport>,
+    stats_str: String,
+    client_version: Option<String>,
+}

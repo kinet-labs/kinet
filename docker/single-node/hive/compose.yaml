@@ -1,0 +1,71 @@
+services:
+  build_triedb:
+    image: kinet-execution-builder:latest
+    command: kinet-mpt --storage /kinet/triedb/test.db --create --root-offsets-chunk-count=2
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    ulimits: &ulimits
+      nofile:
+        soft: 1048576
+        hard: 1048576
+      memlock:
+        soft: 16770785280
+        hard: 16770785280
+
+  build_genesis:
+    image: kinet-execution-builder:latest
+    depends_on:
+      build_triedb:
+        condition: service_completed_successfully
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    command:
+      kinet
+      --chain hive_net
+      --db /kinet/triedb/test.db
+      --block_db /kinet/ledger
+      --nblocks 0
+      --log_level ERROR
+    ulimits: *ulimits
+
+  kinet_execution:
+    image: kinet-execution-builder:latest
+    depends_on:
+      build_genesis:
+        condition: service_completed_successfully
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    command: |
+      kinet
+      --chain hive_net
+      --db /kinet/triedb/test.db
+      --block_db /kinet/ledger
+      --log_level ERROR
+      --nblocks ${NBLOCKS:?NBLOCKS is required}
+      --chain-rlp /kinet/chain.rlp
+      --as-eth-blocks
+    ulimits: *ulimits
+
+  kinet_rpc:
+    build:
+      context: ${KINET_ROOT}
+      dockerfile: ${RPC_DIR}/Dockerfile
+      args:
+        GIT_TAG_VERSION: ${GIT_TAG_VERSION}
+    image: kinet-rpc:latest
+    depends_on:
+      kinet_execution:
+        condition: service_completed_successfully
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    ports:
+      - "8080:8080"
+    command: |
+      kinet-rpc
+      --triedb-path /kinet/triedb
+      --node-config /kinet/config/node.toml
+    ulimits: *ulimits

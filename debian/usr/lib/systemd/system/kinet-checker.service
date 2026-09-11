@@ -1,0 +1,30 @@
+[Unit]
+Description="Service file for Kinet Checker"
+After=network.target
+PartOf=kinet.target kinet-init.target
+
+[Service]
+WorkingDirectory=/home/kinet
+Type=simple
+ExecStart=/usr/local/bin/kinet-archive-checker \
+    --bucket "${ARCHIVE_BUCKET}" \
+    --otel-endpoint ${OTEL_ENDPOINT} \
+    --max-compute-threads 2 \
+    checker \
+    --recheck-freq-min 50 \
+    --init-replicas "${INIT_REPLICAS}"
+EnvironmentFile=-/home/kinet/.env
+Restart=always
+User=kinet
+Group=kinet
+DeviceAllow=/dev/triedb rw
+LimitNOFILE=1048576
+# Hugemem configs below
+LimitMEMLOCK=infinity
+MemoryDenyWriteExecute=false
+#SystemCallFilter=~@memlock
+ProtectKernelModules=no
+ProtectKernelLogs=no
+
+[Install]
+WantedBy=multi-user.target

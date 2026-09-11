@@ -1,0 +1,5 @@
+---
+source: kinet-peer-discovery/src/message.rs
+expression: "hex::encode(encoded)"
+---
+"c20106"

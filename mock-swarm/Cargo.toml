@@ -1,0 +1,67 @@
+[package]
+name = "kinet-mock-swarm"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[features]
+raptorcast = ["dep:kinet-raptorcast"]
+
+[dependencies]
+kinet-blocksync = { workspace = true }
+kinet-chain-config = { workspace = true }
+kinet-consensus = { workspace = true }
+kinet-consensus-state = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-multi-sig = { workspace = true }
+kinet-raptorcast = { workspace = true, optional = true }
+kinet-router-scheduler = { workspace = true }
+kinet-state = { workspace = true }
+kinet-testutil = { workspace = true }
+kinet-tfm = { workspace = true }
+kinet-transformer = { workspace = true }
+kinet-types = { workspace = true }
+kinet-updaters = { workspace = true }
+kinet-validator = { workspace = true }
+
+bytes = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+priority-queue = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+rayon = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kinet-bls = { workspace = true }
+kinet-eth-block-policy = { workspace = true }
+kinet-eth-block-validator = { workspace = true }
+kinet-eth-ledger = { workspace = true }
+kinet-eth-testutil = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-secp = { workspace = true }
+
+alloy-consensus = { workspace = true }
+alloy-eips = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+criterion = { workspace = true }
+seq-macro = { workspace = true }
+serde_json = { workspace = true }
+test-case = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[[bench]]
+name = "two_node_benchmark"
+harness = false

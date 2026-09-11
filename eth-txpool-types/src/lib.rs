@@ -1,0 +1,187 @@
+// Copyright (C) 2025 Kinet Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the Apache-2.0 license as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// Apache-2.0 license for more details.
+//
+// You should have received a copy of the Apache-2.0 license
+// along with this program.  If not, see <http://www.apache.org/licenses//>.
+
+use std::{
+    collections::{BTreeMap, HashSet},
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use alloy_consensus::TxEnvelope;
+use alloy_primitives::{Address, TxHash, U256};
+use alloy_rlp::{RlpDecodable, RlpEncodable};
+use kinet_eth_block_policy::validation::StaticValidationError;
+use serde::{Deserialize, Serialize};
+
+pub const DEFAULT_TX_PRIORITY: U256 = U256::from_limbs([0xFFFFu64, 0, 0, 0]);
+
+#[test]
+fn test_default_tx_priority() {
+    assert_eq!(DEFAULT_TX_PRIORITY, U256::from(0xFFFFu64));
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EthTxPoolEvent {
+    pub tx_hash: TxHash,
+    pub action: EthTxPoolEventType,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EthTxPoolEventType {
+    /// The tx was inserted into the txpool.
+    Insert {
+        address: Address,
+        owned: bool,
+
+        #[serde(with = "eth_tx_pool_event_type_tx_serde")]
+        tx: TxEnvelope,
+    },
+
+    /// The tx was committed and is thus finalized.
+    Commit,
+
+    /// The tx was dropped for the attached reason.
+    Drop { reason: EthTxPoolDropReason },
+
+    /// The tx timed out and was evicted.
+    Evict { reason: EthTxPoolEvictReason },
+}
+
+mod eth_tx_pool_event_type_tx_serde {
+    use alloy_consensus::TxEnvelope;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub(super) fn serialize<S>(tx: &TxEnvelope, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let bytes = alloy_rlp::encode(tx);
+
+        <Vec<u8> as Serialize>::serialize(&bytes, serializer)
+    }
+
+    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<TxEnvelope, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <Vec<u8> as Deserialize>::deserialize(deserializer)?;
+
+        alloy_rlp::decode_exact(bytes).map_err(<D::Error as serde::de::Error>::custom)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EthTxPoolDropReason {
+    NotWellFormed(StaticValidationError),
+    InvalidSignature,
+    NonceTooLow,
+    FeeTooLow,
+    InsufficientBalance,
+    ExistingHigherPriority,
+    ReplacedByHigherPriority { replacement: TxHash },
+    PoolFull,
+    PoolNotReady,
+    Internal(EthTxPoolInternalDropReason),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EthTxPoolInternalDropReason {
+    ExecutionStateReadError,
+    NotReady,
+}
+
+impl EthTxPoolDropReason {
+    pub fn as_user_string(&self) -> String {
+        match self {
+            EthTxPoolDropReason::NotWellFormed(err) => match err {
+                StaticValidationError::InvalidChainId { .. } => "Invalid chain ID",
+                StaticValidationError::MaxPriorityOverMaxFee { .. } => "Max priority fee too high",
+                StaticValidationError::InitCodeLimitExceeded { .. } => {
+                    "Init code size limit exceeded"
+                }
+                StaticValidationError::EncodedLengthLimitExceeded => {
+                    "Encoded length limit exceeded"
+                }
+                StaticValidationError::GasLimitUnderFloorDataGas { .. } => "Gas limit too low",
+                StaticValidationError::GasLimitUnderIntrinsicGas { .. } => "Gas limit too low",
+                StaticValidationError::GasLimitOverTFMGasLimit { .. } => {
+                    "Exceeds transaction gas limit"
+                }
+                StaticValidationError::GasLimitOverProposalGasLimit { .. } => {
+                    "Exceeds transaction gas limit"
+                }
+                StaticValidationError::InvalidSignature => "Invalid transaction signature",
+                StaticValidationError::UnsupportedTransactionType => "Unsupported transaction type",
+                StaticValidationError::AuthorizationListEmpty => "EIP7702 authorization list empty",
+                StaticValidationError::AuthorizationListLengthLimitExceeded => {
+                    "EIP7702 authorization list length limit exceeded"
+                }
+            },
+            EthTxPoolDropReason::InvalidSignature => "Transaction signature is invalid",
+            EthTxPoolDropReason::NonceTooLow => "Transaction nonce too low",
+            EthTxPoolDropReason::FeeTooLow => "Transaction fee too low",
+            EthTxPoolDropReason::InsufficientBalance => "Signer had insufficient balance",
+            EthTxPoolDropReason::PoolFull => "Transaction pool is full",
+            EthTxPoolDropReason::ExistingHigherPriority => {
+                "An existing transaction had higher priority"
+            }
+            EthTxPoolDropReason::ReplacedByHigherPriority { .. } => {
+                "A newer transaction had higher priority"
+            }
+            EthTxPoolDropReason::PoolNotReady => "Transaction pool is not ready",
+            EthTxPoolDropReason::Internal(_) => "Internal error",
+        }
+        .to_owned()
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EthTxPoolEvictReason {
+    Expired,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EthTxPoolSnapshot {
+    pub txs: HashSet<TxHash>,
+}
+
+#[derive(RlpEncodable, RlpDecodable)]
+pub struct EthTxPoolIpcTx {
+    pub tx: TxEnvelope,
+    pub priority: U256,
+
+    // TODO(andr-dev): Pass extra_data to custom sequencers
+    pub extra_data: Vec<u8>,
+}
+
+impl EthTxPoolIpcTx {
+    pub fn new_with_default_priority(tx: TxEnvelope, extra_data: Vec<u8>) -> Self {
+        Self {
+            tx,
+            priority: DEFAULT_TX_PRIORITY,
+            extra_data,
+        }
+    }
+}
+
+pub trait EthTxPoolTxInputStream {
+    fn poll_txs(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        generate_snapshot: impl Fn() -> EthTxPoolSnapshot,
+    ) -> Poll<Vec<EthTxPoolIpcTx>>;
+
+    fn broadcast_tx_events(self: Pin<&mut Self>, events: BTreeMap<TxHash, EthTxPoolEventType>);
+}

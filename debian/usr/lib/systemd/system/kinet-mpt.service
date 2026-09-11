@@ -1,0 +1,21 @@
+[Unit]
+Description="Service file for Kinet MPT"
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kinet-mpt \
+    --storage /dev/triedb \
+    --create
+User=kinet
+Group=kinet
+Restart=no
+DeviceAllow=/dev/triedb rw
+LimitNOFILE=1048576
+# Hugemem configs below
+LimitMEMLOCK=infinity
+ProtectKernelModules=no
+ProtectKernelLogs=no
+
+[Install]
+WantedBy=multi-user.target

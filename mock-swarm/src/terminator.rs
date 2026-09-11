@@ -1,0 +1,215 @@
+// Copyright (C) 2025 Kinet Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the Apache-2.0 license as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// Apache-2.0 license for more details.
+//
+// You should have received a copy of the Apache-2.0 license
+// along with this program.  If not, see <http://www.apache.org/licenses//>.
+
+use std::{collections::BTreeMap, time::Duration};
+
+use kinet_crypto::certificate_signature::{CertificateSignaturePubKey, PubKey};
+use kinet_transformer::ID;
+use kinet_types::{Epoch, Round, SeqNum, GENESIS_SEQ_NUM};
+use kinet_updaters::ledger::MockableLedger;
+
+use crate::{mock_swarm::Nodes, swarm_relation::SwarmRelation};
+
+pub trait NodesTerminator<S>
+where
+    S: SwarmRelation,
+{
+    fn should_terminate(&mut self, nodes: &Nodes<S>, next_tick: Duration) -> bool;
+}
+
+#[derive(Clone, Copy)]
+pub struct UntilTerminator {
+    until_tick: Duration,
+    until_block: usize,
+    until_epoch: Epoch,
+    until_round: Round,
+    until_step: usize,
+}
+
+impl Default for UntilTerminator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UntilTerminator {
+    pub fn new() -> Self {
+        UntilTerminator {
+            until_tick: Duration::MAX,
+            until_block: usize::MAX,
+            until_epoch: Epoch::MAX,
+            until_round: Round(u64::MAX),
+            until_step: usize::MAX,
+        }
+    }
+
+    pub fn until_tick(mut self, tick: Duration) -> Self {
+        self.until_tick = tick;
+        self
+    }
+
+    // TODO change this to SeqNum
+    pub fn until_block(mut self, b_cnt: usize) -> Self {
+        self.until_block = b_cnt;
+        self
+    }
+
+    pub fn until_round(mut self, round: Round) -> Self {
+        self.until_round = round;
+        self
+    }
+
+    pub fn until_epoch(mut self, epoch: Epoch) -> Self {
+        self.until_epoch = epoch;
+        self
+    }
+
+    /// run for N number of steps
+    /// note that this behavior might differ for step_batch
+    /// this is because multiple events may be emitted per logical "step"
+    pub fn until_step(mut self, step: usize) -> Self {
+        assert!(step >= 1);
+        self.until_step = step;
+        self
+    }
+}
+
+impl<S> NodesTerminator<S> for UntilTerminator
+where
+    S: SwarmRelation,
+{
+    fn should_terminate(&mut self, nodes: &Nodes<S>, next_tick: Duration) -> bool {
+        let should_terminate = self.until_step == 0
+            || next_tick > self.until_tick
+            || nodes
+                .states
+                .values()
+                .any(|node| node.executor.ledger().get_finalized_blocks().len() > self.until_block)
+            || (nodes.states.values().all(|node| {
+                node.state
+                    .consensus()
+                    .is_some_and(|consensus| consensus.get_current_epoch() >= self.until_epoch)
+            }))
+            || nodes.states.values().any(|node| {
+                node.state
+                    .consensus()
+                    .is_some_and(|consensus| consensus.get_current_round() > self.until_round)
+            });
+        self.until_step -= 1;
+        should_terminate
+    }
+}
+
+// observe and monitor progress of certain nodes until commit progress is achieved for all
+#[derive(Clone)]
+pub struct ProgressTerminator<PT: PubKey> {
+    // NodeId -> Ledger len
+    nodes_monitor: BTreeMap<ID<PT>, usize>,
+    timeout: Duration,
+}
+
+impl<PT: PubKey> ProgressTerminator<PT> {
+    pub fn new(nodes_monitor: BTreeMap<ID<PT>, usize>, timeout: Duration) -> Self {
+        ProgressTerminator {
+            nodes_monitor,
+            timeout,
+        }
+    }
+
+    pub fn extend_all(&mut self, progress: usize) {
+        // extend the required termination progress of all monitor
+        for original_progress in self.nodes_monitor.values_mut() {
+            *original_progress += progress;
+        }
+    }
+}
+
+impl<S> NodesTerminator<S> for ProgressTerminator<CertificateSignaturePubKey<S::SignatureType>>
+where
+    S: SwarmRelation,
+{
+    fn should_terminate(&mut self, nodes: &Nodes<S>, _next_tick: Duration) -> bool {
+        if nodes.tick > self.timeout {
+            panic!(
+                "ProgressTerminator timed-out, expecting nodes
+                to reach following progress before timeout: {:?},
+                but the actual progress is: {:?}",
+                self.nodes_monitor,
+                nodes
+                    .states
+                    .iter()
+                    .map(|(id, nodes)| (id, nodes.executor.ledger().get_finalized_blocks().len()))
+                    .collect::<BTreeMap<_, _>>()
+            );
+        }
+
+        let mut longest_ledger_ref = None;
+        for (peer_id, expected_len) in &self.nodes_monitor {
+            let blocks = nodes
+                .states
+                .get(peer_id)
+                .expect("node must exists")
+                .executor
+                .ledger()
+                .get_finalized_blocks();
+            if blocks.len() < *expected_len {
+                return false;
+            }
+            match longest_ledger_ref {
+                None => longest_ledger_ref = Some(blocks),
+                Some(reference) => {
+                    if reference.len() < blocks.len() {
+                        longest_ledger_ref = Some(blocks);
+                    }
+                }
+            }
+        }
+
+        // reference to the longest ledger
+        let longest_ledger_ref = longest_ledger_ref.expect("must have at least 1 entry");
+        // once termination condition is met, all the ledger should also have identical blocks
+        for (peer_id, expected_len) in &self.nodes_monitor {
+            let blocks = nodes
+                .states
+                .get(peer_id)
+                .expect("node must exists")
+                .executor
+                .ledger()
+                .get_finalized_blocks();
+
+            let mut next_seq_num = GENESIS_SEQ_NUM + SeqNum(1);
+            for (round, block) in longest_ledger_ref.iter().take(*expected_len) {
+                assert_eq!(
+                    block.get_seq_num(),
+                    next_seq_num,
+                    "block {:?} doesn't exist",
+                    next_seq_num
+                );
+
+                assert!(
+                    block
+                        == blocks
+                            .get(round)
+                            .unwrap_or_else(|| panic!("block {:?} doesn't exist", next_seq_num))
+                );
+                next_seq_num += SeqNum(1);
+            }
+
+            for i in 1..=(*expected_len) {}
+        }
+
+        true
+    }
+}

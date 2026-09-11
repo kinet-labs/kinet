@@ -1,0 +1,24 @@
+[Unit]
+Description="Service file for Kinet ledger-tail"
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kinet-ledger-tail \
+    --ledger-path /home/kinet/kinet/ledger \
+    --forkpoint-path /home/kinet/kinet/config/forkpoint/forkpoint.toml \
+    --peers-path /home/kinet/kinet/config/peers.toml \
+    --validators-path /home/kinet/kinet/config/validators/validators.toml
+EnvironmentFile=-/home/kinet/.env
+User=kinet
+Restart=always
+Group=kinet
+LimitNOFILE=1048576
+# Hugemem configs below
+LimitMEMLOCK=infinity
+MemoryDenyWriteExecute=false
+ProtectKernelModules=no
+ProtectKernelLogs=no
+
+[Install]
+WantedBy=multi-user.target

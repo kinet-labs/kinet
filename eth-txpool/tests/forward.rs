@@ -1,0 +1,310 @@
+// Copyright (C) 2025 Kinet Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the Apache-2.0 license as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// Apache-2.0 license for more details.
+//
+// You should have received a copy of the Apache-2.0 license
+// along with this program.  If not, see <http://www.apache.org/licenses//>.
+
+use std::collections::BTreeMap;
+
+use kinet_chain_config::{revision::MockChainRevision, MockChainConfig};
+use kinet_crypto::NopSignature;
+use kinet_eth_block_policy::EthBlockPolicy;
+use kinet_eth_testutil::{generate_block_with_txs, make_legacy_tx, recover_tx, S1};
+use kinet_eth_txpool::{EthTxPool, EthTxPoolEventTracker, EthTxPoolMetrics, PoolTxKind};
+use kinet_execution_state_read::{
+    AccountState, InMemoryBlockState, InMemoryState, InMemoryStateInner,
+};
+use kinet_testutil::signing::MockSignatures;
+use kinet_types::{Round, SeqNum, GENESIS_SEQ_NUM};
+
+use self::common::dummy_node_id;
+
+mod common;
+
+type SignatureType = NopSignature;
+type SignatureCollectionType = MockSignatures<SignatureType>;
+
+const FORWARD_MIN_SEQ_NUM_DIFF: u64 = 3;
+const FORWARD_MAX_RETRIES: usize = 2;
+const BASE_FEE: u64 = 100_000_000_000;
+
+fn with_txpool(
+    insert_tx_owned: bool,
+    f: impl FnOnce(
+        EthTxPool<
+            SignatureType,
+            SignatureCollectionType,
+            InMemoryState<SignatureType, SignatureCollectionType>,
+            MockChainConfig,
+            MockChainRevision,
+        >,
+        &mut EthTxPoolEventTracker,
+    ),
+) {
+    let tx = recover_tx(make_legacy_tx(S1, BASE_FEE.into(), 100_000, 0, 10));
+    let eth_block_policy = EthBlockPolicy::<
+        SignatureType,
+        SignatureCollectionType,
+        MockChainConfig,
+        MockChainRevision,
+    >::new(GENESIS_SEQ_NUM, 4);
+    let mut state_read = InMemoryStateInner::new(
+        SeqNum(4),
+        InMemoryBlockState::genesis(BTreeMap::from_iter(vec![(
+            tx.signer(),
+            AccountState::max_balance(),
+        )])),
+    );
+    let mut pool = EthTxPool::default_testing();
+
+    let metrics = EthTxPoolMetrics::default();
+    let mut ipc_events = BTreeMap::default();
+    let mut event_tracker = EthTxPoolEventTracker::new(&metrics, &mut ipc_events);
+
+    assert!(pool
+        .get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+        .is_none());
+
+    pool.update_committed_block(
+        &mut event_tracker,
+        &MockChainConfig::DEFAULT,
+        generate_block_with_txs(
+            Round(0),
+            SeqNum(0),
+            BASE_FEE,
+            &MockChainConfig::DEFAULT,
+            Vec::default(),
+        ),
+    );
+
+    assert_eq!(
+        pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+            .unwrap()
+            .count(),
+        0
+    );
+
+    let metrics = EthTxPoolMetrics::default();
+    let mut ipc_events = BTreeMap::default();
+    let mut event_tracker = EthTxPoolEventTracker::new(&metrics, &mut ipc_events);
+
+    pool.insert_txs(
+        &mut event_tracker,
+        &eth_block_policy,
+        &mut state_read,
+        &MockChainConfig::DEFAULT,
+        vec![(
+            tx,
+            if insert_tx_owned {
+                PoolTxKind::owned_default()
+            } else {
+                PoolTxKind::Forwarded {
+                    sender: dummy_node_id(),
+                }
+            },
+        )],
+        |_| {},
+    );
+
+    assert_eq!(pool.num_txs(), 1);
+    assert_eq!(
+        pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+            .unwrap()
+            .count(),
+        0
+    );
+
+    f(pool, &mut event_tracker)
+}
+
+#[test]
+fn test_simple() {
+    with_txpool(true, |mut pool, event_tracker| {
+        for (idx, forwardable) in [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0].into_iter().enumerate() {
+            pool.update_committed_block(
+                event_tracker,
+                &MockChainConfig::DEFAULT,
+                generate_block_with_txs(
+                    Round(idx as u64 + 1),
+                    SeqNum(idx as u64 + 1),
+                    BASE_FEE,
+                    &MockChainConfig::DEFAULT,
+                    Vec::default(),
+                ),
+            );
+
+            assert_eq!(
+                pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+                    .unwrap()
+                    .count(),
+                forwardable
+            );
+
+            // Subsequent calls do not produce the tx
+            //  -> Validates that tx is not reproduced in same block
+            for _ in 0..128 {
+                assert_eq!(
+                    pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+                        .unwrap()
+                        .count(),
+                    0
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn test_forwarded() {
+    with_txpool(false, |mut pool, event_tracker| {
+        for idx in 0..128 {
+            pool.update_committed_block(
+                event_tracker,
+                &MockChainConfig::DEFAULT,
+                generate_block_with_txs(
+                    Round(idx as u64 + 1),
+                    SeqNum(idx as u64 + 1),
+                    BASE_FEE,
+                    &MockChainConfig::DEFAULT,
+                    Vec::default(),
+                ),
+            );
+
+            for _ in 0..128 {
+                assert_eq!(
+                    pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+                        .unwrap()
+                        .count(),
+                    // Forwarded txs are never forwarded
+                    0
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn test_multiple_sequential_commits() {
+    with_txpool(true, |mut pool, event_tracker| {
+        let mut round_seqnum = 1;
+
+        for forwardable in [1, 1, 0, 0, 0, 0, 0, 0] {
+            for _ in 0..128 {
+                pool.update_committed_block(
+                    event_tracker,
+                    &MockChainConfig::DEFAULT,
+                    generate_block_with_txs(
+                        Round(round_seqnum),
+                        SeqNum(round_seqnum),
+                        BASE_FEE,
+                        &MockChainConfig::DEFAULT,
+                        Vec::default(),
+                    ),
+                );
+                round_seqnum += 1;
+            }
+
+            assert_eq!(
+                pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+                    .unwrap()
+                    .count(),
+                forwardable
+            );
+
+            // Subsequent calls do not produce the tx
+            //  -> Validates that forwarding is non-bursty
+            for _ in 0..128 {
+                assert_eq!(
+                    pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+                        .unwrap()
+                        .count(),
+                    0
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn test_base_fee() {
+    with_txpool(true, |mut pool, event_tracker| {
+        let mut round = 1;
+
+        for _ in 0..FORWARD_MAX_RETRIES {
+            for _ in 0..128 {
+                pool.update_committed_block(
+                    event_tracker,
+                    &MockChainConfig::DEFAULT,
+                    generate_block_with_txs(
+                        Round(round),
+                        SeqNum(round),
+                        BASE_FEE + 1,
+                        &MockChainConfig::DEFAULT,
+                        Vec::default(),
+                    ),
+                );
+                round += 1;
+
+                assert_eq!(
+                    pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+                        .unwrap()
+                        .count(),
+                    0
+                );
+            }
+
+            pool.update_committed_block(
+                event_tracker,
+                &MockChainConfig::DEFAULT,
+                generate_block_with_txs(
+                    Round(round),
+                    SeqNum(round),
+                    BASE_FEE,
+                    &MockChainConfig::DEFAULT,
+                    Vec::default(),
+                ),
+            );
+            round += 1;
+
+            assert_eq!(
+                pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+                    .unwrap()
+                    .count(),
+                1
+            );
+        }
+
+        for _ in 0..128 {
+            pool.update_committed_block(
+                event_tracker,
+                &MockChainConfig::DEFAULT,
+                generate_block_with_txs(
+                    Round(round),
+                    SeqNum(round),
+                    BASE_FEE,
+                    &MockChainConfig::DEFAULT,
+                    Vec::default(),
+                ),
+            );
+            round += 1;
+
+            // Subsequent calls do not produce the tx
+            //  -> Validates that forwarding is non-bursty
+            assert_eq!(
+                pool.get_forwardable_txs::<FORWARD_MIN_SEQ_NUM_DIFF, FORWARD_MAX_RETRIES>()
+                    .unwrap()
+                    .count(),
+                0
+            );
+        }
+    });
+}

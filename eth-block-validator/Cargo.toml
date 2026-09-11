@@ -1,0 +1,43 @@
+[package]
+name = "kinet-eth-block-validator"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[dependencies]
+kinet-chain-config = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-block-policy = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-secp = { workspace = true }
+kinet-system-calls = { workspace = true }
+kinet-types = { workspace = true }
+kinet-validator = { workspace = true }
+
+alloy-consensus = { workspace = true }
+alloy-eips = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+rayon = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kinet-eth-testutil = { workspace = true }
+kinet-eth-txpool = { workspace = true }
+kinet-testutil = { workspace = true }
+kinet-types = { workspace = true }
+
+alloy-consensus = { workspace = true, features = ["k256"] }
+alloy-eips = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
+itertools = { workspace = true }
+proptest = { workspace = true }
+rand = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

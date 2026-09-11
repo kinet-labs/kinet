@@ -1,0 +1,36 @@
+[package]
+name = "kinet-node-config"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[features]
+crypto = ["dep:kinet-bls", "dep:kinet-secp"]
+
+[dependencies]
+kinet-bls = { workspace = true, optional = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-peer-score = { workspace = true }
+kinet-secp = { workspace = true, optional = true }
+kinet-types = { workspace = true }
+
+alloy-primitives = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+kinet-chain-config = { workspace = true }
+
+clap = { workspace = true, features = ["derive"] }
+codespan-reporting = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+
+[[example]]
+name = "kinet-node-config-linter"
+path = "examples/linter.rs"

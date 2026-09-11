@@ -1,0 +1,33 @@
+[package]
+name = "kinet-peer-discovery"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kinet-crypto = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-node-config = { workspace = true }
+kinet-types = { workspace = true }
+
+alloy-rlp = { workspace = true }
+arrayvec = { workspace = true }
+futures = { workspace = true }
+governor = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+tokio-util = { workspace = true, features = ["time"] }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+kinet-keystore = { workspace = true }
+kinet-node-config = { workspace = true, features = ["crypto"] }
+kinet-secp = { workspace = true }
+kinet-testutil = { workspace = true }
+
+clap = { workspace = true, features = ["derive"] }
+hex = { workspace = true }
+insta = { workspace = true }
+rstest = { workspace = true }
+test-case = { workspace = true }

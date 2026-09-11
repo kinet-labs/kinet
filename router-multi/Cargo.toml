@@ -1,0 +1,21 @@
+[package]
+name = "kinet-router-multi"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kinet-crypto = { workspace = true }
+kinet-dataplane = { workspace = true }
+kinet-executor = { workspace = true }
+kinet-executor-glue = { workspace = true }
+kinet-node-config = { workspace = true }
+kinet-peer-discovery = { workspace = true }
+kinet-peer-score = { workspace = true }
+kinet-raptorcast = { workspace = true }
+kinet-types = { workspace = true }
+kinet-validator = { workspace = true }
+
+alloy-rlp = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,321 @@
+// Copyright (C) 2025 Kinet Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the Apache-2.0 license as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// Apache-2.0 license for more details.
+//
+// You should have received a copy of the Apache-2.0 license
+// along with this program.  If not, see <http://www.apache.org/licenses//>.
+
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    net::{SocketAddr, SocketAddrV4},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+use kinet_chain_config::{revision::MockChainRevision, MockChainConfig};
+use kinet_consensus_state::ConsensusConfig;
+use kinet_consensus_types::{
+    block::{MockExecutionProtocol, PassthruBlockPolicy},
+    block_validator::MockValidator,
+    validator_data::{ValidatorSetData, ValidatorSetDataWithEpoch},
+};
+use kinet_control_panel::ipc::ControlPanelIpcReceiver;
+use kinet_crypto::certificate_signature::{
+    CertificateSignature, CertificateSignaturePubKey, CertificateSignatureRecoverable,
+};
+use kinet_dataplane::{DataplaneBuilder, TcpSocketId, UdpSocketId};
+use kinet_execution_state_read::InMemoryState;
+use kinet_executor_glue::{Command, KinetEvent, RouterCommand, ValSetCommand};
+use kinet_peer_discovery::{
+    driver::PeerDiscoveryDriver,
+    mock::{NopDiscovery, NopDiscoveryBuilder},
+};
+use kinet_raptorcast::{
+    auth::{NoopAuthProtocol, NopScore},
+    config::RaptorCastConfig,
+    raptorcast_secondary::SecondaryRaptorCastModeConfig,
+    RaptorCast,
+};
+use kinet_state::{Forkpoint, KinetMessage, KinetState, KinetStateBuilder, VerifiedKinetMessage};
+use kinet_types::{Epoch, ExecutionProtocol, NodeId, Round, SeqNum};
+use kinet_updaters::{
+    config_file::MockConfigFile, config_loader::MockConfigLoader, ledger::MockLedger,
+    local_router::LocalPeerRouter, loopback::LoopbackExecutor, parent::ParentExecutor,
+    statesync::MockStateSyncExecutor, timer::TokioTimer, tokio_timestamp::TokioTimestamp,
+    txpool::MockTxPoolExecutor, val_set::MockValSetUpdaterNop, BoxUpdater, Updater,
+};
+use kinet_validator::{
+    signature_collection::SignatureCollection, simple_round_robin::SimpleRoundRobin,
+    validator_set::ValidatorSetFactory,
+};
+use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Layer};
+
+pub enum RouterConfig<ST, SCT, EPT>
+where
+    ST: CertificateSignatureRecoverable,
+    SCT: SignatureCollection<NodeIdPubKey = CertificateSignaturePubKey<ST>>,
+    EPT: ExecutionProtocol,
+{
+    Local(
+        /// Must be passed ahead-of-time because they can't be instantiated individually
+        LocalPeerRouter<ST, KinetMessage<ST, SCT, EPT>, VerifiedKinetMessage<ST, SCT, EPT>>,
+    ),
+    RaptorCast(RaptorCastConfig<ST>),
+}
+
+pub enum LedgerConfig {
+    Mock,
+}
+
+pub enum ValSetConfig<SCT>
+where
+    SCT: SignatureCollection,
+{
+    Mock {
+        genesis_validator_data: ValidatorSetData<SCT>,
+        epoch_length: SeqNum,
+    },
+}
+
+pub struct ExecutorConfig<ST, SCT, EPT>
+where
+    ST: CertificateSignatureRecoverable,
+    SCT: SignatureCollection<NodeIdPubKey = CertificateSignaturePubKey<ST>>,
+    EPT: ExecutionProtocol,
+{
+    pub local_addr: SocketAddr,
+    pub known_addresses: HashMap<NodeId<SCT::NodeIdPubKey>, SocketAddrV4>,
+    pub router_config: RouterConfig<ST, SCT, EPT>,
+    pub ledger_config: LedgerConfig,
+    pub val_set_config: ValSetConfig<SCT>,
+    pub nodeid: NodeId<SCT::NodeIdPubKey>,
+}
+
+pub fn make_kinet_executor<ST, SCT>(
+    index: usize,
+    state_read: InMemoryState<ST, SCT>,
+    config: ExecutorConfig<ST, SCT, MockExecutionProtocol>,
+) -> ParentExecutor<
+    BoxUpdater<
+        'static,
+        RouterCommand<ST, VerifiedKinetMessage<ST, SCT, MockExecutionProtocol>>,
+        KinetEvent<ST, SCT, MockExecutionProtocol>,
+    >,
+    TokioTimer<KinetEvent<ST, SCT, MockExecutionProtocol>>,
+    MockLedger<ST, SCT, MockExecutionProtocol>,
+    MockConfigFile<ST, SCT, MockExecutionProtocol>,
+    BoxUpdater<'static, ValSetCommand, KinetEvent<ST, SCT, MockExecutionProtocol>>,
+    TokioTimestamp<ST, SCT, MockExecutionProtocol>,
+    MockTxPoolExecutor<
+        ST,
+        SCT,
+        MockExecutionProtocol,
+        PassthruBlockPolicy,
+        InMemoryState<ST, SCT>,
+        MockChainConfig,
+        MockChainRevision,
+    >,
+    ControlPanelIpcReceiver<ST, SCT, MockExecutionProtocol>,
+    LoopbackExecutor<KinetEvent<ST, SCT, MockExecutionProtocol>>,
+    MockStateSyncExecutor<ST, SCT, MockExecutionProtocol>,
+    MockConfigLoader<ST, SCT, MockExecutionProtocol>,
+>
+where
+    ST: CertificateSignatureRecoverable + Unpin,
+    SCT: SignatureCollection<NodeIdPubKey = CertificateSignaturePubKey<ST>> + Unpin,
+    <ST as CertificateSignature>::KeyPairType: Unpin,
+    <SCT as SignatureCollection>::SignatureType: Unpin,
+{
+    let (filter, reload_handle) =
+        tracing_subscriber::reload::Layer::new(EnvFilter::from_default_env());
+
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(tracing_subscriber::fmt::Layer::default().with_filter(filter));
+
+    let _ = tracing::subscriber::set_global_default(subscriber);
+
+    let peer_discovery_builder = NopDiscoveryBuilder {
+        known_addresses: config.known_addresses,
+        ..Default::default()
+    };
+
+    ParentExecutor {
+        metrics: Default::default(),
+        router: match config.router_config {
+            RouterConfig::Local(router) => Updater::boxed(router),
+
+            RouterConfig::RaptorCast(cfg) => {
+                let pdd = PeerDiscoveryDriver::new(peer_discovery_builder);
+                let shared_peer_discovery_driver = Arc::new(Mutex::new(pdd));
+
+                let auth_socket_addr =
+                    SocketAddr::new(config.local_addr.ip(), config.local_addr.port() + 1);
+                let dataplane_builder = DataplaneBuilder::new(1_000)
+                    .with_udp_buffer_size(62_500_000)
+                    .with_udp_sockets([
+                        (UdpSocketId::Raptorcast, config.local_addr),
+                        (UdpSocketId::AuthenticatedRaptorcast, auth_socket_addr),
+                    ])
+                    .with_tcp_sockets([(TcpSocketId::Raptorcast, config.local_addr)]);
+
+                let mut dp = dataplane_builder.build();
+                assert!(dp.block_until_ready(Duration::from_secs(1)));
+
+                let tcp_socket = dp
+                    .tcp_sockets
+                    .take(TcpSocketId::Raptorcast)
+                    .expect("tcp raptorcast socket");
+                let authenticated_socket = dp
+                    .udp_sockets
+                    .take(UdpSocketId::AuthenticatedRaptorcast)
+                    .expect("authenticated raptorcast socket");
+                let non_authenticated_socket = dp
+                    .udp_sockets
+                    .take(UdpSocketId::Raptorcast)
+                    .expect("raptorcast socket");
+                let control = dp.control;
+
+                let authenticated = (authenticated_socket, NoopAuthProtocol::new());
+                Updater::boxed(RaptorCast::<
+                    ST,
+                    KinetMessage<ST, SCT, MockExecutionProtocol>,
+                    VerifiedKinetMessage<ST, SCT, MockExecutionProtocol>,
+                    KinetEvent<ST, SCT, MockExecutionProtocol>,
+                    NopDiscovery<ST>,
+                    NoopAuthProtocol<CertificateSignaturePubKey<ST>>,
+                    NopScore<NodeId<CertificateSignaturePubKey<ST>>>,
+                >::new(
+                    cfg,
+                    SecondaryRaptorCastModeConfig::None,
+                    tcp_socket,
+                    authenticated,
+                    None,
+                    Some(non_authenticated_socket),
+                    control,
+                    shared_peer_discovery_driver,
+                    Epoch(0),
+                    kinet_raptorcast::dummy_proposer_schedule(),
+                ))
+            }
+        },
+
+        timer: TokioTimer::default(),
+        ledger: match config.ledger_config {
+            LedgerConfig::Mock => MockLedger::new(state_read.clone()),
+        },
+        config_file: MockConfigFile::default(),
+        val_set: match config.val_set_config {
+            ValSetConfig::Mock {
+                genesis_validator_data,
+                epoch_length,
+            } => Updater::boxed(MockValSetUpdaterNop::new(
+                genesis_validator_data,
+                epoch_length,
+            )),
+        },
+        timestamp: TokioTimestamp::new(Duration::from_millis(5), 100, 10001),
+        txpool: MockTxPoolExecutor::default(),
+        control_panel: ControlPanelIpcReceiver::new(
+            format!("./kinet_controlpanel_{}.sock", index).into(),
+            Box::new(reload_handle),
+            1000,
+        )
+        .expect("uds bind failed"),
+        loopback: LoopbackExecutor::default(),
+        state_sync: MockStateSyncExecutor::new(state_read),
+        config_loader: MockConfigLoader::default(),
+    }
+}
+
+type KinetStateType<ST, SCT> = KinetState<
+    ST,
+    SCT,
+    MockExecutionProtocol,
+    PassthruBlockPolicy,
+    InMemoryState<ST, SCT>,
+    ValidatorSetFactory<CertificateSignaturePubKey<ST>>,
+    SimpleRoundRobin<CertificateSignaturePubKey<ST>>,
+    MockValidator,
+    MockChainConfig,
+    MockChainRevision,
+>;
+
+pub struct StateConfig<ST, SCT>
+where
+    ST: CertificateSignatureRecoverable,
+    SCT: SignatureCollection<NodeIdPubKey = CertificateSignaturePubKey<ST>>,
+{
+    pub key: ST::KeyPairType,
+
+    pub cert_key: <SCT::SignatureType as CertificateSignature>::KeyPairType,
+
+    pub epoch_length: SeqNum,
+    pub epoch_start_delay: Round,
+
+    pub validators: ValidatorSetData<SCT>,
+    pub consensus_config: ConsensusConfig<MockChainConfig, MockChainRevision>,
+}
+
+pub fn make_kinet_state<ST, SCT>(
+    state_read: InMemoryState<ST, SCT>,
+    config: StateConfig<ST, SCT>,
+) -> (
+    KinetStateType<ST, SCT>,
+    Vec<
+        Command<
+            KinetEvent<ST, SCT, MockExecutionProtocol>,
+            VerifiedKinetMessage<ST, SCT, MockExecutionProtocol>,
+            ST,
+            SCT,
+            MockExecutionProtocol,
+            PassthruBlockPolicy,
+            InMemoryState<ST, SCT>,
+            MockChainConfig,
+            MockChainRevision,
+        >,
+    >,
+)
+where
+    ST: CertificateSignatureRecoverable,
+    SCT: SignatureCollection<NodeIdPubKey = CertificateSignaturePubKey<ST>>,
+{
+    let forkpoint = Forkpoint::genesis();
+    let locked_epoch_validators: Vec<_> = forkpoint
+        .validator_sets
+        .iter()
+        .map(|locked_epoch| ValidatorSetDataWithEpoch {
+            epoch: locked_epoch.epoch,
+            validators: config.validators.clone(),
+        })
+        .collect();
+    KinetStateBuilder {
+        validator_set_factory: ValidatorSetFactory::default(),
+        leader_election: SimpleRoundRobin::default(),
+        block_validator: MockValidator {},
+        block_policy: PassthruBlockPolicy {},
+        state_read,
+        key: config.key,
+        certkey: config.cert_key,
+        beneficiary: Default::default(),
+        forkpoint,
+        locked_epoch_validators,
+        block_sync_override_peers: Default::default(),
+        maybe_blocksync_rng_seed: Some(123456),
+        consensus_config: config.consensus_config,
+        whitelisted_statesync_nodes: Default::default(),
+        statesync_expand_to_group: true,
+        serve_statesync: true,
+
+        _phantom: PhantomData,
+    }
+    .build()
+}

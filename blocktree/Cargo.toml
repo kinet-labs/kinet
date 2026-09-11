@@ -1,0 +1,22 @@
+[package]
+name = "kinet-blocktree"
+version = "0.1.0"
+edition = "2021"
+
+# this is necessary for criterion bench options
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+
+[dependencies]
+kinet-chain-config = { workspace = true }
+kinet-consensus-types = { workspace = true }
+kinet-crypto = { workspace = true }
+kinet-execution-state-read = { workspace = true }
+kinet-types = { workspace = true }
+kinet-validator = { workspace = true }
+
+[dev-dependencies]
+kinet-crypto = { workspace = true }
+kinet-eth-types = { workspace = true }
+kinet-testutil = { workspace = true }

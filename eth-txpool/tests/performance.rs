@@ -1,0 +1,201 @@
+// Copyright (C) 2025 Kinet Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the Apache-2.0 license as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// Apache-2.0 license for more details.
+//
+// You should have received a copy of the Apache-2.0 license
+// along with this program.  If not, see <http://www.apache.org/licenses//>.
+
+use std::collections::BTreeMap;
+
+use alloy_primitives::FixedBytes;
+use kinet_chain_config::MockChainConfig;
+use kinet_consensus_types::{block::GENESIS_TIMESTAMP, payload::RoundSignature};
+use kinet_crypto::{
+    certificate_signature::{CertificateKeyPair, PubKey},
+    NopKeyPair, NopPubKey, NopSignature,
+};
+use kinet_eth_block_policy::EthBlockPolicy;
+use kinet_eth_testutil::{
+    generate_block_with_txs, make_eip7702_tx, make_legacy_tx, make_signed_authorization,
+    recover_tx, secret_to_eth_address, S1, S2,
+};
+use kinet_eth_txpool::{EthTxPool, EthTxPoolEventTracker, EthTxPoolMetrics, PoolTxKind};
+use kinet_execution_state_read::{
+    AccountState, ExecutionStateRead, InMemoryBlockState, InMemoryState, InMemoryStateInner,
+};
+use kinet_testutil::signing::MockSignatures;
+use kinet_tfm::base_fee::MIN_BASE_FEE;
+use kinet_types::{Epoch, NodeId, Round, SeqNum, GENESIS_SEQ_NUM};
+
+type SignatureType = NopSignature;
+type SignatureCollectionType = MockSignatures<SignatureType>;
+type ExecutionStateReadType = InMemoryState<SignatureType, SignatureCollectionType>;
+
+#[test]
+fn txpool_create_proposal_lookups_bound_by_tx_limit() {
+    for (tx_limit, expected_lookups) in [(usize::MAX, 7), (1, 6)] {
+        let mut pool = EthTxPool::default_testing();
+
+        let metrics = EthTxPoolMetrics::default();
+        let mut ipc_events = BTreeMap::default();
+        let mut event_tracker = EthTxPoolEventTracker::new(&metrics, &mut ipc_events);
+
+        pool.update_committed_block(
+            &mut event_tracker,
+            &MockChainConfig::DEFAULT,
+            generate_block_with_txs(
+                Round(0),
+                SeqNum(0),
+                MIN_BASE_FEE,
+                &MockChainConfig::DEFAULT,
+                Vec::default(),
+            ),
+        );
+
+        let eth_block_policy = EthBlockPolicy::new(GENESIS_SEQ_NUM, u64::MAX);
+
+        let mut state_read: ExecutionStateReadType = InMemoryStateInner::new(
+            SeqNum::MAX,
+            InMemoryBlockState::genesis(BTreeMap::from_iter([
+                (secret_to_eth_address(S1), AccountState::max_balance()),
+                (secret_to_eth_address(S2), AccountState::max_balance()),
+            ])),
+        );
+
+        pool.insert_txs(
+            &mut event_tracker,
+            &eth_block_policy,
+            &mut state_read,
+            &MockChainConfig::DEFAULT,
+            vec![
+                recover_tx(make_legacy_tx(S1, MIN_BASE_FEE.into(), 100_000, 0, 0)),
+                recover_tx(make_legacy_tx(S2, MIN_BASE_FEE.into(), 100_000, 0, 0)),
+            ]
+            .into_iter()
+            .map(|tx| (tx, PoolTxKind::owned_default()))
+            .collect(),
+            |_| {},
+        );
+
+        assert_eq!(pool.num_txs(), 2);
+        assert_eq!(4, state_read.total_db_lookups());
+
+        let mock_keypair = NopKeyPair::from_bytes(&mut [5_u8; 32]).unwrap();
+
+        let _ = pool
+            .create_proposal(
+                &mut event_tracker,
+                Epoch(1),
+                Round(1),
+                SeqNum(1),
+                MIN_BASE_FEE,
+                tx_limit,
+                1_000_000,
+                1024 * 1024,
+                [0_u8; 20],
+                GENESIS_TIMESTAMP,
+                NodeId::new(NopPubKey::from_bytes(&[0_u8; 32]).unwrap()),
+                RoundSignature::new(Round(0), &mock_keypair),
+                vec![],
+                &eth_block_policy,
+                &mut state_read,
+                &MockChainConfig::DEFAULT,
+            )
+            .unwrap();
+
+        assert_eq!(expected_lookups, state_read.total_db_lookups());
+    }
+}
+
+#[test]
+fn txpool_create_proposal_no_lookup_for_unknown_authorizations() {
+    for authorization_address in [
+        secret_to_eth_address(S1),
+        secret_to_eth_address(S2),
+        secret_to_eth_address(FixedBytes::random()),
+    ] {
+        let mut pool = EthTxPool::default_testing();
+
+        let metrics = EthTxPoolMetrics::default();
+        let mut ipc_events = BTreeMap::default();
+        let mut event_tracker = EthTxPoolEventTracker::new(&metrics, &mut ipc_events);
+
+        pool.update_committed_block(
+            &mut event_tracker,
+            &MockChainConfig::DEFAULT,
+            generate_block_with_txs(
+                Round(0),
+                SeqNum(0),
+                MIN_BASE_FEE,
+                &MockChainConfig::DEFAULT,
+                Vec::default(),
+            ),
+        );
+
+        let eth_block_policy = EthBlockPolicy::new(GENESIS_SEQ_NUM, u64::MAX);
+
+        let mut state_read: ExecutionStateReadType = InMemoryStateInner::new(
+            SeqNum::MAX,
+            InMemoryBlockState::genesis(BTreeMap::from_iter([
+                (secret_to_eth_address(S1), AccountState::max_balance()),
+                (secret_to_eth_address(S2), AccountState::max_balance()),
+            ])),
+        );
+
+        pool.insert_txs(
+            &mut event_tracker,
+            &eth_block_policy,
+            &mut state_read,
+            &MockChainConfig::DEFAULT,
+            vec![recover_tx(make_eip7702_tx(
+                S1,
+                MIN_BASE_FEE.into(),
+                0,
+                1_000_000,
+                0,
+                vec![make_signed_authorization(S2, authorization_address, 0)],
+                0,
+            ))]
+            .into_iter()
+            .map(|tx| (tx, PoolTxKind::owned_default()))
+            .collect(),
+            |_| {},
+        );
+
+        assert_eq!(pool.num_txs(), 1);
+        assert_eq!(2, state_read.total_db_lookups());
+
+        let mock_keypair = NopKeyPair::from_bytes(&mut [5_u8; 32]).unwrap();
+
+        let _ = pool
+            .create_proposal(
+                &mut event_tracker,
+                Epoch(1),
+                Round(1),
+                SeqNum(1),
+                MIN_BASE_FEE,
+                usize::MAX,
+                1_000_000,
+                1024 * 1024,
+                [0_u8; 20],
+                GENESIS_TIMESTAMP,
+                NodeId::new(NopPubKey::from_bytes(&[0_u8; 32]).unwrap()),
+                RoundSignature::new(Round(0), &mock_keypair),
+                vec![],
+                &eth_block_policy,
+                &mut state_read,
+                &MockChainConfig::DEFAULT,
+            )
+            .unwrap();
+
+        assert_eq!(4, state_read.total_db_lookups());
+    }
+}

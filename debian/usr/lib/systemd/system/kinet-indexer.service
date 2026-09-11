@@ -1,0 +1,26 @@
+[Unit]
+Description="Service file for Kinet Indexer"
+After=network.target
+
+[Service]
+WorkingDirectory=/home/kinet
+Type=simple
+ExecStart=/usr/local/bin/kinet-indexer \
+    --block-data-source "${BLOCK_DATA_SOURCE}" \
+    --archive-sink "${ARCHIVE_SINK}" \
+    --otel-endpoint "http://127.0.0.1:4317"
+EnvironmentFile=-/home/kinet/.env
+Restart=always
+User=kinet
+Group=kinet
+DeviceAllow=/dev/triedb rw
+LimitNOFILE=1048576
+# Hugemem configs below
+LimitMEMLOCK=infinity
+MemoryDenyWriteExecute=false
+#SystemCallFilter=~@memlock
+ProtectKernelModules=no
+ProtectKernelLogs=no
+
+[Install]
+WantedBy=multi-user.target

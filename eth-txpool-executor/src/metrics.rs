@@ -1,0 +1,90 @@
+// Copyright (C) 2025 Kinet Labs, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the Apache-2.0 license as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// Apache-2.0 license for more details.
+//
+// You should have received a copy of the Apache-2.0 license
+// along with this program.  If not, see <http://www.apache.org/licenses//>.
+
+use kinet_eth_txpool::{EthTxPoolMetrics, TXPOOL_EXECUTOR_METRIC_DEFS};
+use kinet_executor::{ExecutorMetrics, Gauge, MetricDef};
+
+kinet_executor::metric_consts! {
+    REJECT_FORWARDED_INVALID_BYTES {
+        name: "kinet.bft.txpool.reject_forwarded_invalid_bytes",
+        help: "Forwarded txs rejected due to invalid bytes",
+    }
+    CREATE_PROPOSAL {
+        name: "kinet.bft.txpool.create_proposal",
+        help: "Proposals created from txpool",
+    }
+    CREATE_PROPOSAL_ELAPSED_NS {
+        name: "kinet.bft.txpool.create_proposal_elapsed_ns",
+        help: "Time spent creating proposals in nanoseconds",
+    }
+    PRELOAD_BACKEND_LOOKUPS {
+        name: "kinet.bft.txpool.preload_backend_lookups",
+        help: "Preload backend lookups",
+    }
+    PRELOAD_BACKEND_REQUESTS {
+        name: "kinet.bft.txpool.preload_backend_requests",
+        help: "Preload backend requests",
+    }
+}
+
+const EXECUTOR_METRIC_DEFS: &[&MetricDef] = &[
+    REJECT_FORWARDED_INVALID_BYTES,
+    CREATE_PROPOSAL,
+    CREATE_PROPOSAL_ELAPSED_NS,
+    PRELOAD_BACKEND_LOOKUPS,
+    PRELOAD_BACKEND_REQUESTS,
+];
+
+impl Default for EthTxPoolExecutorMetrics {
+    fn default() -> Self {
+        let (_, metrics) = Self::new();
+        metrics
+    }
+}
+
+#[derive(Debug)]
+pub struct EthTxPoolExecutorMetrics {
+    pub reject_forwarded_invalid_bytes: Gauge,
+
+    pub create_proposal: Gauge,
+    pub create_proposal_elapsed_ns: Gauge,
+
+    pub preload_backend_lookups: Gauge,
+    pub preload_backend_requests: Gauge,
+
+    pub pool: EthTxPoolMetrics,
+}
+
+impl EthTxPoolExecutorMetrics {
+    pub fn new() -> (ExecutorMetrics, Self) {
+        let metric_defs = [EXECUTOR_METRIC_DEFS, TXPOOL_EXECUTOR_METRIC_DEFS].concat();
+        let mut executor_metrics = ExecutorMetrics::with_metric_defs(&metric_defs);
+        let metrics = Self::from_executor_metrics(&mut executor_metrics);
+        (executor_metrics, metrics)
+    }
+
+    pub fn from_executor_metrics(executor_metrics: &mut ExecutorMetrics) -> Self {
+        Self {
+            reject_forwarded_invalid_bytes: executor_metrics
+                .gauge(REJECT_FORWARDED_INVALID_BYTES)
+                .clone(),
+            create_proposal: executor_metrics.gauge(CREATE_PROPOSAL).clone(),
+            create_proposal_elapsed_ns: executor_metrics.gauge(CREATE_PROPOSAL_ELAPSED_NS).clone(),
+            preload_backend_lookups: executor_metrics.gauge(PRELOAD_BACKEND_LOOKUPS).clone(),
+            preload_backend_requests: executor_metrics.gauge(PRELOAD_BACKEND_REQUESTS).clone(),
+            pool: EthTxPoolMetrics::from_executor_metrics(executor_metrics),
+        }
+    }
+}

@@ -1,0 +1,103 @@
+services:
+  build_triedb:
+    image: kinet-execution-builder:latest
+    command: kinet-mpt --storage /kinet/triedb/test.db --create --root-offsets-chunk-count=2
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    ulimits: &ulimits
+      nofile:
+        soft: 1048576
+        hard: 1048576
+      memlock:
+        soft: 16770785280
+        hard: 16770785280
+
+  build_genesis:
+    image: kinet-execution-builder:latest
+    depends_on:
+      build_triedb:
+        condition: service_completed_successfully
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    command:
+      kinet
+      --chain kinet_devnet
+      --db /kinet/triedb/test.db
+      --block_db /kinet/ledger
+      --nblocks 0
+      --log_level ERROR
+    ulimits: *ulimits
+
+  kinet_execution:
+    image: kinet-execution-builder:latest
+    depends_on:
+      build_triedb:
+        condition: service_completed_successfully
+      build_genesis:
+        condition: service_completed_successfully
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    command: |
+      kinet
+      --chain kinet_devnet
+      --db /kinet/triedb/test.db
+      --block_db /kinet/ledger
+      --statesync /kinet/statesync.sock
+      --log_level ERROR
+    ulimits: *ulimits
+
+  kinet_node:
+    build:
+      context: ${KINET_ROOT}
+      dockerfile: ${DEVNET_DIR}/Dockerfile
+      args:
+        GIT_TAG_VERSION: ${GIT_TAG_VERSION}
+    image: kinet-node:latest
+    depends_on:
+      - build_triedb
+      - kinet_execution
+    environment:
+      - RUST_LOG=
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    command: |
+      kinet-node
+      --secp-identity /kinet/config/id-secp
+      --bls-identity /kinet/config/id-bls
+      --node-config /kinet/config/node.toml
+      --forkpoint-config /kinet/config/forkpoint.genesis.toml
+      --validators-path /kinet/config/validators.toml
+      --persisted-peers-path /kinet/config/peers.toml
+      --statesync-ipc-path /kinet/statesync.sock
+      --wal-path /kinet/wal
+      --mempool-ipc-path /kinet/mempool.sock
+      --control-panel-ipc-path /kinet/controlpanel.sock
+      --ledger-path /kinet/ledger
+      --triedb-path /kinet/triedb
+    ulimits: *ulimits
+
+  kinet_rpc:
+    build:
+      context: ${KINET_ROOT}
+      dockerfile: ${RPC_DIR}/Dockerfile
+      args:
+        GIT_TAG_VERSION: ${GIT_TAG_VERSION}
+    image: kinet-rpc:latest
+    depends_on:
+      - build_triedb
+      - kinet_node
+    volumes:
+      - ./node:/kinet
+    privileged: true
+    ports:
+      - "8080:8080"
+    command: |
+      kinet-rpc
+      --ipc-path /kinet/mempool.sock
+      --triedb-path /kinet/triedb
+      --node-config /kinet/config/node.toml
+    ulimits: *ulimits
